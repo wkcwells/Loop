@@ -28,6 +28,8 @@ struct NotificationManager {
         case BolusStartDate
     }
 
+    private static var lastEmptyNotification = Date(timeIntervalSinceReferenceDate:0)
+
     private static var notificationCategories: Set<UNNotificationCategory> {
         var categories = [UNNotificationCategory]()
 
@@ -141,6 +143,11 @@ struct NotificationManager {
     }
 
     static func sendPumpReservoirEmptyNotification() {
+        guard lastEmptyNotification.timeIntervalSinceNow <= TimeInterval(minutes: -20)
+        else {
+            return
+        }
+
         let notification = UNMutableNotificationContent()
 
         notification.title = NSLocalizedString("Pump Reservoir Empty", comment: "The notification title for an empty pump reservoir")
@@ -156,6 +163,7 @@ struct NotificationManager {
         )
 
         UNUserNotificationCenter.current().add(request)
+        lastEmptyNotification = Date()      // Is this current time and date?
     }
 
     static func sendPumpReservoirLowNotificationForAmount(_ units: Double, andTimeRemaining remaining: TimeInterval?) {
