@@ -143,7 +143,7 @@ struct NotificationManager {
     }
 
     static func sendPumpReservoirEmptyNotification() {
-        guard lastEmptyNotification.timeIntervalSinceNow <= TimeInterval(minutes: -20)
+        guard lastEmptyNotification.timeIntervalSinceNow <= TimeInterval(minutes: -20)  // Make this a constant - or even settable?
         else {
             return
         }
