@@ -98,7 +98,11 @@ final class StatusExtensionDataManager {
             if let lastPoint = predictedGlucose?.last {
                 context.eventualGlucose = lastPoint.quantity.doubleValue(for: preferredUnit)
             }
-            
+
+            if let iob: Double? = 1.0 {
+                context.activeInsulin = iob;
+            }
+
             completionHandler(context)
         }
     }

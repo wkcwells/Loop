@@ -29,6 +29,7 @@ struct NotificationManager {
     }
 
     private static var lastEmptyNotification = Date(timeIntervalSinceReferenceDate:0)
+    private static var lastBatteryLowNotification = Date(timeIntervalSinceReferenceDate:0)
 
     private static var notificationCategories: Set<UNNotificationCategory> {
         var categories = [UNNotificationCategory]()
@@ -126,6 +127,11 @@ struct NotificationManager {
     }
 
     static func sendPumpBatteryLowNotification() {
+        guard lastBatteryLowNotification.timeIntervalSinceNow <= TimeInterval(minutes: -20)  // Make this a constant - or even settable?
+            else {
+                return
+        }
+
         let notification = UNMutableNotificationContent()
 
         notification.title = NSLocalizedString("Pump Battery Low", comment: "The notification title for a low pump battery")
@@ -140,6 +146,7 @@ struct NotificationManager {
         )
 
         UNUserNotificationCenter.current().add(request)
+        lastBatteryLowNotification = Date()      // Is this current time and date?
     }
 
     static func sendPumpReservoirEmptyNotification() {

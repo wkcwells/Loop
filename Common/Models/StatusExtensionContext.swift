@@ -52,6 +52,7 @@ final class StatusExtensionContext: RawRepresentable {
     var netBasal: NetBasalContext?
     var batteryPercentage: Double?
     var eventualGlucose: Double?
+    var activeInsulin: Double?
     
     init() { }
     

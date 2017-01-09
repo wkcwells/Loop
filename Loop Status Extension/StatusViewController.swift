@@ -146,12 +146,19 @@ class StatusViewController: UIViewController, NCWidgetProviding {
         let formatter = NumberFormatter.glucoseFormatter(for: preferredUnit)
         if let eventualGlucose = context.eventualGlucose,
            let eventualGlucoseNumberString = formatter.string(from: NSNumber(value: eventualGlucose)) {
+            var iobString: String
+            if let iob = context.activeInsulin {        // Can I use a ternary for this?
+                iobString = String(format:"%.1f", iob)
+            } else {
+                iobString = "unk";
+            }
             subtitleLabel.text = String(
                     format: NSLocalizedString(
-                        "Eventually %1$@ %2$@",
+                        "IOB: %3$@ u\tEventually %1$@ %2$@",            // Does "u" or "IOB" need to be localized?
                         comment: "The subtitle format describing eventual glucose. (1: localized glucose value description) (2: localized glucose units description)"),
                     eventualGlucoseNumberString,
-                    preferredUnit.glucoseUnitDisplayString)
+                    preferredUnit.glucoseUnitDisplayString,
+                    iobString)
             subtitleLabel.alpha = 1
         } else {
             subtitleLabel.alpha = 0
