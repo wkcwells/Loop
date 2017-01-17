@@ -202,6 +202,7 @@ final class StatusTableViewController: UITableViewController, UIGestureRecognize
 
                 if let index = values.closestIndexPriorToDate(Date()) {
                     self.currentIOBDescription = String(describing: self.charts.iobPoints[index].y)
+                    NSLog("IOB for status table view: \(self.currentIOBDescription)")
                 }
 
                 reloadGroup.leave()

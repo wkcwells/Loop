@@ -107,8 +107,10 @@ final class StatusExtensionContext: RawRepresentable {
         }
         
         eventualGlucose = raw["eventualGlucose"] as? Double
-    }
-    
+
+        activeInsulin = raw["activeInsulin"] as? Double
+}
+
     var rawValue: RawValue {
         var raw: RawValue = [
             "version": version
@@ -157,6 +159,10 @@ final class StatusExtensionContext: RawRepresentable {
             raw["eventualGlucose"] = eventualGlucose
         }
         
+        if let activeInsulin = activeInsulin {
+            raw["activeInsulin"] = activeInsulin
+        }
+
         return raw
     }
 }

@@ -16,6 +16,7 @@ class StatusViewController: UIViewController, NCWidgetProviding {
 
     @IBOutlet weak var hudView: HUDView!
     @IBOutlet weak var subtitleLabel: UILabel!
+    @IBOutlet weak var iobLabel: UILabel!
 
     var statusExtensionContext: StatusExtensionContext?
     var defaults: UserDefaults?
@@ -55,6 +56,8 @@ class StatusViewController: UIViewController, NCWidgetProviding {
         super.viewDidLoad()
         subtitleLabel.alpha = 0
         subtitleLabel.textColor = UIColor.secondaryLabelColor
+        iobLabel.alpha = 0
+        iobLabel.textColor = UIColor.secondaryLabelColor
 
         let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(openLoopApp(_:)))
         view.addGestureRecognizer(tapGestureRecognizer)
@@ -146,24 +149,28 @@ class StatusViewController: UIViewController, NCWidgetProviding {
         let formatter = NumberFormatter.glucoseFormatter(for: preferredUnit)
         if let eventualGlucose = context.eventualGlucose,
            let eventualGlucoseNumberString = formatter.string(from: NSNumber(value: eventualGlucose)) {
-            var iobString: String
-            if let iob = context.activeInsulin {        // Can I use a ternary for this?
-                iobString = String(format:"%.1f", iob)
-            } else {
-                iobString = "unk";
-            }
             subtitleLabel.text = String(
                     format: NSLocalizedString(
-                        "IOB: %3$@ u\tEventually %1$@ %2$@",            // Does "u" or "IOB" need to be localized?
+                        "Eventually %1$@ %2$@",            // Does "u" or "IOB" need to be localized?
                         comment: "The subtitle format describing eventual glucose. (1: localized glucose value description) (2: localized glucose units description)"),
                     eventualGlucoseNumberString,
-                    preferredUnit.glucoseUnitDisplayString,
-                    iobString)
+                    preferredUnit.glucoseUnitDisplayString )
             subtitleLabel.alpha = 1
         } else {
             subtitleLabel.alpha = 0
         }
-        
+        if let iob = context.activeInsulin,
+            let iobNumberString = formatter.string(from: NSNumber(value: iob)) {      // What if it's null?  Will probably just not show?  Test this.  Also: Use only one digit instead of 2?
+            iobLabel.text = String(
+                format: NSLocalizedString(
+                    "IOB: %1$@ u", comment:"Boo"),            // Does "u" or "IOB" need to be localized?  See above
+                iobNumberString)
+            iobLabel.alpha = 1
+        } else {
+            iobLabel.alpha = 0
+        }
+
+
         // Right now we always act as if there's new data.
         // TODO: keep track of data changes and return .noData if necessary
         return NCUpdateResult.newData

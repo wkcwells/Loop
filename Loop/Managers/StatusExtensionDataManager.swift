@@ -44,7 +44,7 @@ final class StatusExtensionDataManager {
         }
         
         dataManager.loopManager.getLoopStatus {
-            (predictedGlucose, _, recommendedTempBasal, lastTempBasal, lastLoopCompleted, _, _, error) in
+            (predictedGlucose, _, recommendedTempBasal, lastTempBasal, lastLoopCompleted, insulinOnBoard, _, error) in
             
             if error != nil {
                 // TODO: unclear how to handle the error here properly.
@@ -99,8 +99,9 @@ final class StatusExtensionDataManager {
                 context.eventualGlucose = lastPoint.quantity.doubleValue(for: preferredUnit)
             }
 
-            if let iob: Double? = 1.0 {
-                context.activeInsulin = iob;
+            if let iob = insulinOnBoard {
+                context.activeInsulin = iob.value;
+                NSLog("IOB passed to extension: \(iob.value)")
             }
 
             completionHandler(context)
