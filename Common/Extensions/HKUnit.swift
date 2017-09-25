@@ -20,18 +20,39 @@ extension HKUnit {
             return 1
         }
     }
+
+    static func milligramsPerDeciliter() -> HKUnit {
+        return HKUnit.gramUnit(with: .milli).unitDivided(by: HKUnit.literUnit(with: .deci))
+    }
     
-    static func millimolesPerLiterUnit() -> HKUnit {
+    static func millimolesPerLiter() -> HKUnit {
         return HKUnit.moleUnit(with: .milli, molarMass: HKUnitMolarMassBloodGlucose).unitDivided(by: HKUnit.liter())
     }
     
-    // A glucose-centric presentation helper for the localized unit string
+    /// A glucose-centric presentation helper for the localized unit string
     var glucoseUnitDisplayString: String {
-        if self == HKUnit.millimolesPerLiterUnit() {
+        if self == HKUnit.millimolesPerLiter() {
             return NSLocalizedString("mmol/L", comment: "The unit display string for millimoles of glucose per liter")
         } else {
             return String(describing: self)
         }
     }
 
+    /// An example value for the "ideal" target
+    var glucoseExampleTargetValue: Double {
+        if unitString == "mg/dL" {
+            return 100
+        } else {
+            return 5.5
+        }
+    }
+
+    /// The smallest value expected to be visible on a chart
+    var chartableIncrement: Double {
+        if unitString == "mg/dL" {
+            return 1
+        } else {
+            return 1 / 25
+        }
+    }
 }
