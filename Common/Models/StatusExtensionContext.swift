@@ -9,23 +9,14 @@
 
 import Foundation
 import HealthKit
-import LoopUI
+import LoopKit
 
-struct ReservoirContext {
-    let startDate: Date
-    let unitVolume: Double
-    let capacity: Int
-}
-
-struct LoopContext {
-    let dosingEnabled: Bool
-    let lastCompleted: Date?
-}
 
 struct NetBasalContext {
     let rate: Double
     let percentage: Double
-    let startDate: Date
+    let start: Date
+    let end: Date
 }
 
 struct SensorDisplayableContext: SensorDisplayable {
@@ -39,58 +30,24 @@ struct GlucoseContext {
     let value: Double
     let unit: HKUnit
     let startDate: Date
-    let sensor: SensorDisplayableContext?
 
     var quantity: HKQuantity {
         return HKQuantity(unit: unit, doubleValue: value)
     }
 }
 
-extension ReservoirContext: RawRepresentable {
-    typealias RawValue = [String: Any]
+struct PredictedGlucoseContext {
+    let values: [Double]
+    let unit: HKUnit
+    let startDate: Date
+    let interval: TimeInterval
 
-    var rawValue: RawValue {
-        return [
-            "startDate": startDate,
-            "unitVolume": unitVolume,
-            "capacity": capacity
-        ]
-    }
-
-    init?(rawValue: RawValue) {
-        guard
-            let startDate = rawValue["startDate"] as? Date,
-            let unitVolume = rawValue["unitVolume"] as? Double,
-            let capacity = rawValue["capacity"] as? Int
-        else {
-            return nil
+    var samples: [GlucoseContext] {
+        var result: [GlucoseContext] = []
+        for (i, v) in values.enumerated() {
+            result.append(GlucoseContext(value: v, unit: unit, startDate: startDate.addingTimeInterval(Double(i) * interval)))
         }
-
-        self.startDate = startDate
-        self.unitVolume = unitVolume
-        self.capacity = capacity
-    }
-}
-
-extension LoopContext: RawRepresentable {
-    typealias RawValue = [String: Any]
-
-    var rawValue: RawValue {
-        var raw: RawValue = [
-            "dosingEnabled": dosingEnabled
-        ]
-        raw["lastCompleted"] = lastCompleted
-        return raw
-    }
-
-    init?(rawValue: RawValue) {
-        guard let dosingEnabled = rawValue["dosingEnabled"] as? Bool
-        else {
-            return nil
-        }
-
-        self.dosingEnabled = dosingEnabled
-        self.lastCompleted = rawValue["lastCompleted"] as? Date
+        return result
     }
 }
 
@@ -101,7 +58,8 @@ extension NetBasalContext: RawRepresentable {
         return [
             "rate": rate,
             "percentage": percentage,
-            "startDate": startDate
+            "start": start,
+            "end": end
         ]
     }
 
@@ -109,14 +67,16 @@ extension NetBasalContext: RawRepresentable {
         guard
             let rate       = rawValue["rate"] as? Double,
             let percentage = rawValue["percentage"] as? Double,
-            let startDate  = rawValue["startDate"] as? Date
+            let start      = rawValue["start"] as? Date,
+            let end        = rawValue["end"] as? Date
         else {
             return nil
         }
 
         self.rate = rate
         self.percentage = percentage
-        self.startDate = startDate
+        self.start = start
+        self.end = end
     }
 }
 
@@ -162,53 +122,47 @@ extension SensorDisplayableContext: RawRepresentable {
     }
 }
 
-extension GlucoseContext: RawRepresentable {
+extension PredictedGlucoseContext: RawRepresentable {
     typealias RawValue = [String: Any]
 
     var rawValue: RawValue {
-        var raw: RawValue = [
-            "value": value,
+        return [
+            "values": values,
             "unit": unit.unitString,
-            "startDate": startDate
+            "startDate": startDate,
+            "interval": interval
         ]
-        raw["sensor"] = sensor?.rawValue
-
-        return raw
     }
 
     init?(rawValue: RawValue) {
         guard
-            let value = rawValue["value"] as? Double,
+            let values = rawValue["values"] as? [Double],
             let unitString = rawValue["unit"] as? String,
-            let startDate = rawValue["startDate"] as? Date
+            let startDate = rawValue["startDate"] as? Date,
+            let interval = rawValue["interval"] as? TimeInterval
         else {
             return nil
         }
 
-        self.value = value
+        self.values = values
         self.unit = HKUnit(from: unitString)
         self.startDate = startDate
-
-        if let rawValue = rawValue["sensor"] as? SensorDisplayableContext.RawValue {
-            self.sensor = SensorDisplayableContext(rawValue: rawValue)
-        } else {
-            self.sensor = nil
-        }
+        self.interval = interval
     }
 }
 
 struct StatusExtensionContext: RawRepresentable {
     typealias RawValue = [String: Any]
-    private let version = 2
+    private let version = 5
 
-    var latestGlucose: GlucoseContext?
-    var reservoir: ReservoirContext?
-    var loop: LoopContext?
+    var predictedGlucose: PredictedGlucoseContext?
+    var lastLoopCompleted: Date?
     var netBasal: NetBasalContext?
     var batteryPercentage: Double?
-    var eventualGlucose: GlucoseContext?
+    var reservoirCapacity: Double?
+    var sensor: SensorDisplayableContext?
     var activeInsulin: Double?
-    
+
     init() { }
     
     init?(rawValue: RawValue) {
@@ -216,26 +170,20 @@ struct StatusExtensionContext: RawRepresentable {
             return nil
         }
 
-        if let rawValue = rawValue["latestGlucose"] as? GlucoseContext.RawValue {
-            latestGlucose = GlucoseContext(rawValue: rawValue)
-        }
-
-        if let rawValue = rawValue["reservoir"] as? ReservoirContext.RawValue {
-            reservoir = ReservoirContext(rawValue: rawValue)
-        }
-
-        if let rawValue = rawValue["loop"] as? LoopContext.RawValue {
-            loop = LoopContext(rawValue: rawValue)
+        if let rawValue = rawValue["predictedGlucose"] as? PredictedGlucoseContext.RawValue {
+            predictedGlucose = PredictedGlucoseContext(rawValue: rawValue)
         }
 
         if let rawValue = rawValue["netBasal"] as? NetBasalContext.RawValue {
             netBasal = NetBasalContext(rawValue: rawValue)
         }
 
+        lastLoopCompleted = rawValue["lastLoopCompleted"] as? Date
         batteryPercentage = rawValue["batteryPercentage"] as? Double
+        reservoirCapacity = rawValue["reservoirCapacity"] as? Double
 
-        if let rawValue = rawValue["eventualGlucose"] as? GlucoseContext.RawValue {
-            eventualGlucose = GlucoseContext(rawValue: rawValue)
+        if let rawValue = rawValue["sensor"] as? SensorDisplayableContext.RawValue {
+            sensor = SensorDisplayableContext(rawValue: rawValue)
         }
 
         activeInsulin = rawValue["activeInsulin"] as? Double
@@ -245,12 +193,13 @@ struct StatusExtensionContext: RawRepresentable {
         var raw: RawValue = [
             "version": version
         ]
-        raw["latestGlucose"] = latestGlucose?.rawValue
-        raw["reservoir"] = reservoir?.rawValue
-        raw["loop"] = loop?.rawValue
+
+        raw["predictedGlucose"] = predictedGlucose?.rawValue
+        raw["lastLoopCompleted"] = lastLoopCompleted
         raw["netBasal"] = netBasal?.rawValue
         raw["batteryPercentage"] = batteryPercentage
-        raw["eventualGlucose"] = eventualGlucose?.rawValue
+        raw["reservoirCapacity"] = reservoirCapacity
+        raw["sensor"] = sensor?.rawValue
         raw["activeInsulin"] = activeInsulin
         return raw
     }

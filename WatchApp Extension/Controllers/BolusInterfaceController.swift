@@ -36,7 +36,7 @@ final class BolusInterfaceController: WKInterfaceController, IdentifiableClass {
                 formatter.minimumFractionDigits = 1
             }
 
-            valueLabel.setText(formatter.string(from: NSNumber(value: bolusValue)) ?? "--")
+            valueLabel.setText(formatter.string(from: bolusValue) ?? "--")
         }
     }
 
@@ -93,10 +93,9 @@ final class BolusInterfaceController: WKInterfaceController, IdentifiableClass {
                 maxBolusValue = recommendedBolus
             }
 
-            let recommendedPickerValue = pickerValueFromBolusValue(recommendedBolus)
-            pickerValue = Int(Double(recommendedPickerValue) * 0.75)
+            pickerValue = pickerValueFromBolusValue(recommendedBolus * 0.75)
 
-            if let valueString = formatter.string(from: NSNumber(value: recommendedBolus)) {
+            if let valueString = formatter.string(from: recommendedBolus) {
                 recommendedValueLabel.setText(String(format: NSLocalizedString("Rec: %@ U", comment: "The label and value showing the recommended bolus"), valueString).localizedUppercase)
             }
         }
@@ -136,8 +135,10 @@ final class BolusInterfaceController: WKInterfaceController, IdentifiableClass {
             let bolus = SetBolusUserInfo(value: bolusValue, startDate: Date())
 
             do {
-                try WCSession.default().sendBolusMessage(bolus) { (error) in
-                    ExtensionDelegate.shared().present(error)
+                try WCSession.default.sendBolusMessage(bolus) { (error) in
+                    DispatchQueue.main.async {
+                        ExtensionDelegate.shared().present(error)
+                    }
                 }
             } catch {
                 presentAlert(
@@ -165,7 +166,7 @@ extension BolusInterfaceController: WKCrownDelegate {
         accumulatedRotation += rotationalDelta
 
         let remainder = accumulatedRotation.truncatingRemainder(dividingBy: rotationsPerValue)
-        pickerValue += Int((accumulatedRotation - remainder).divided(by: rotationsPerValue))
+        pickerValue += Int((accumulatedRotation - remainder) / rotationsPerValue)
         accumulatedRotation = remainder
     }
 }

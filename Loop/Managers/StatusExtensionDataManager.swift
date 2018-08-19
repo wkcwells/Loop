@@ -8,21 +8,20 @@
 
 import HealthKit
 import UIKit
-import CarbKit
 import LoopKit
 
 
 final class StatusExtensionDataManager {
-    unowned let dataManager: DeviceDataManager
+    unowned let deviceManager: DeviceDataManager
 
     init(deviceDataManager: DeviceDataManager) {
-        self.dataManager = deviceDataManager
+        self.deviceManager = deviceDataManager
 
         NotificationCenter.default.addObserver(self, selector: #selector(update(_:)), name: .LoopDataUpdated, object: deviceDataManager.loopManager)
     }
 
     fileprivate var defaults: UserDefaults? {
-        return UserDefaults(suiteName: Bundle.main.appGroupSuiteName)
+        return UserDefaults.appGroup
     }
 
     var context: StatusExtensionContext? {
@@ -30,18 +29,20 @@ final class StatusExtensionDataManager {
     }
 
     @objc private func update(_ notification: Notification) {
-        self.dataManager.glucoseStore?.preferredUnit() { (unit, error) in
-            if error == nil, let unit = unit {
-                self.createContext(glucoseUnit: unit) { (context) in
-                    if let context = context {
-                        self.defaults?.statusExtensionContext = context
-                    }
-                }
+        guard let unit = (deviceManager.loopManager.glucoseStore.preferredUnit ?? context?.predictedGlucose?.unit) else {
+            return
+        }
+
+        createContext(glucoseUnit: unit) { (context) in
+            if let context = context {
+                self.defaults?.statusExtensionContext = context
             }
         }
     }
 
     private func createContext(glucoseUnit: HKUnit, _ completionHandler: @escaping (_ context: StatusExtensionContext?) -> Void) {
+
+        // === KW block ===
         guard let glucoseStore = self.dataManager.glucoseStore else {
             completionHandler(nil)
             return
@@ -56,6 +57,10 @@ final class StatusExtensionDataManager {
             }
             
             let dataManager = self.dataManager
+        // ==================
+
+        deviceManager.loopManager.getLoopState { (manager, state) in
+            let dataManager = self.deviceManager
             var context = StatusExtensionContext()
         
             #if IOS_SIMULATOR
@@ -63,65 +68,64 @@ final class StatusExtensionDataManager {
                 // a fully configured app. Inject some baseline debug data to let us test the
                 // experience. This data will be overwritten by actual data below, if available.
                 context.batteryPercentage = 0.25
-                context.reservoir = ReservoirContext(startDate: Date(), unitVolume: 160, capacity: 300)
                 context.netBasal = NetBasalContext(
                     rate: 2.1,
                     percentage: 0.6,
-                    startDate:
-                    Date(timeIntervalSinceNow: -250)
+                    start:
+                    Date(timeIntervalSinceNow: -250),
+                    end: Date(timeIntervalSinceNow: .minutes(30))
                 )
-                context.eventualGlucose = GlucoseContext(
-                    value: 89.123,
-                    unit: HKUnit.milligramsPerDeciliterUnit(),
-                    startDate: Date(timeIntervalSinceNow: TimeInterval(hours: 4)),
-                    sensor: nil
-                )
+                context.predictedGlucose = PredictedGlucoseContext(
+                    values: (1...36).map { 89.123 + Double($0 * 5) }, // 3 hours of linear data
+                    unit: HKUnit.milligramsPerDeciliter,
+                    startDate: Date(),
+                    interval: TimeInterval(minutes: 5))
 
                 let lastLoopCompleted = Date(timeIntervalSinceNow: -TimeInterval(minutes: 0))
             #else
-                guard error == nil else {
+                guard state.error == nil else {
                     // TODO: unclear how to handle the error here properly.
                     completionHandler(nil)
                     return
                 }
+                let lastLoopCompleted = manager.lastLoopCompleted
             #endif
 
-            context.loop = LoopContext(
-                dosingEnabled: dataManager.loopManager.dosingEnabled,
-                lastCompleted: lastLoopCompleted)
+            context.lastLoopCompleted = lastLoopCompleted
 
-            if let glucose = glucoseStore.latestGlucose {
-                context.latestGlucose = GlucoseContext(
-                    value: glucose.quantity.doubleValue(for: glucoseUnit),
+            // Drop the first element in predictedGlucose because it is the currentGlucose
+            // and will have a different interval to the next element
+            if let predictedGlucose = state.predictedGlucose?.dropFirst(),
+                predictedGlucose.count > 1 {
+                let first = predictedGlucose[predictedGlucose.startIndex]
+                let second = predictedGlucose[predictedGlucose.startIndex.advanced(by: 1)]
+                context.predictedGlucose = PredictedGlucoseContext(
+                    values: predictedGlucose.map { $0.quantity.doubleValue(for: glucoseUnit) },
                     unit: glucoseUnit,
-                    startDate: glucose.startDate,
-                    sensor: dataManager.sensorInfo != nil ? SensorDisplayableContext(dataManager.sensorInfo!) : nil
+                    startDate: first.startDate,
+                    interval: second.startDate.timeIntervalSince(first.startDate))
+            }
+
+            let date = state.lastTempBasal?.startDate ?? Date()
+            if let scheduledBasal = manager.basalRateSchedule?.between(start: date, end: date).first {
+                let netBasal = NetBasal(
+                    lastTempBasal: state.lastTempBasal,
+                    maxBasal: manager.settings.maximumBasalRatePerHour,
+                    scheduledBasal: scheduledBasal
                 )
+
+                context.netBasal = NetBasalContext(rate: netBasal.rate, percentage: netBasal.percent, start: netBasal.start, end: netBasal.end)
             }
-            
-            if let lastNetBasal = dataManager.loopManager.lastNetBasal {
-                context.netBasal = NetBasalContext(rate: lastNetBasal.rate, percentage: lastNetBasal.percent, startDate: lastNetBasal.startDate)
-            }
-            
-            if let reservoir = dataManager.doseStore.lastReservoirValue,
-               let capacity = dataManager.pumpState?.pumpModel?.reservoirCapacity {
-                context.reservoir = ReservoirContext(
-                    startDate: reservoir.startDate,
-                    unitVolume: reservoir.unitVolume,
-                    capacity: capacity
-                )
-            }
-            
-            if let batteryPercentage = dataManager.pumpBatteryChargeRemaining {
-                context.batteryPercentage = batteryPercentage
-            }
-        
-            if let lastPoint = predictedGlucose?.last {
-                context.eventualGlucose = GlucoseContext(
-                    value: lastPoint.quantity.doubleValue(for: glucoseUnit),
-                    unit: glucoseUnit,
-                    startDate: lastPoint.startDate,
-                    sensor: nil
+
+            context.batteryPercentage = dataManager.pumpManager?.pumpBatteryChargeRemaining
+            context.reservoirCapacity = dataManager.pumpManager?.pumpReservoirCapacity
+
+            if let sensorInfo = dataManager.sensorInfo {
+                context.sensor = SensorDisplayableContext(
+                    isStateValid: sensorInfo.isStateValid,
+                    stateDescription: sensorInfo.stateDescription,
+                    trendType: sensorInfo.trendType,
+                    isLocal: sensorInfo.isLocal
                 )
             }
 

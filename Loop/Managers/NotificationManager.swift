@@ -8,24 +8,25 @@
 
 import UIKit
 import UserNotifications
+import LoopKit
 
 
 struct NotificationManager {
     enum Category: String {
-        case BolusFailure
-        case LoopNotRunning
-        case PumpBatteryLow
-        case PumpReservoirEmpty
-        case PumpReservoirLow
+        case bolusFailure
+        case loopNotRunning
+        case pumpBatteryLow
+        case pumpReservoirEmpty
+        case pumpReservoirLow
     }
 
     enum Action: String {
-        case RetryBolus
+        case retryBolus
     }
 
     enum UserInfoKey: String {
-        case BolusAmount
-        case BolusStartDate
+        case bolusAmount
+        case bolusStartDate
     }
 
     private static var lastEmptyNotification = Date(timeIntervalSinceReferenceDate:0)
@@ -35,13 +36,13 @@ struct NotificationManager {
         var categories = [UNNotificationCategory]()
 
         let retryBolusAction = UNNotificationAction(
-            identifier: Action.RetryBolus.rawValue,
+            identifier: Action.retryBolus.rawValue,
             title: NSLocalizedString("Retry", comment: "The title of the notification action to retry a bolus command"),
             options: []
         )
 
         categories.append(UNNotificationCategory(
-            identifier: Category.BolusFailure.rawValue,
+            identifier: Category.bolusFailure.rawValue,
             actions: [retryBolusAction],
             intentIdentifiers: [],
             options: []
@@ -60,25 +61,48 @@ struct NotificationManager {
 
     // MARK: - Notifications
 
-    static func sendBolusFailureNotificationForAmount(_ units: Double, atStartDate startDate: Date) {
+    static func sendBolusFailureNotification(for error: Error, units: Double, at startDate: Date) {
         let notification = UNMutableNotificationContent()
 
         notification.title = NSLocalizedString("Bolus", comment: "The notification title for a bolus failure")
-        notification.body = String(format: NSLocalizedString("%@ U bolus may have failed.", comment: "The notification alert describing a possible bolus failure. The substitution parameter is the size of the bolus in units."), NumberFormatter.localizedString(from: NSNumber(value: units), number: .decimal))
+
+        let sentenceFormat = NSLocalizedString("%@.", comment: "Appends a full-stop to a statement")
+
+        switch error {
+        case let error as SetBolusError:
+            notification.subtitle = error.errorDescriptionWithUnits(units)
+
+            let body = [error.failureReason, error.recoverySuggestion].compactMap({ $0 }).map({
+                String(format: sentenceFormat, $0)
+            }).joined(separator: " ")
+
+            notification.body = body
+        case let error as LocalizedError:
+            if let subtitle = error.errorDescription {
+                notification.subtitle = subtitle
+            }
+            let message = [error.failureReason, error.recoverySuggestion].compactMap({ $0 }).map({
+                String(format: sentenceFormat, $0)
+            }).joined(separator: "\n")
+            notification.body = message.isEmpty ? String(describing: error) : message
+        default:
+            notification.body = error.localizedDescription
+        }
+
         notification.sound = UNNotificationSound.default()
 
         if startDate.timeIntervalSinceNow >= TimeInterval(minutes: -5) {
-            notification.categoryIdentifier = Category.BolusFailure.rawValue
+            notification.categoryIdentifier = Category.bolusFailure.rawValue
         }
 
         notification.userInfo = [
-            UserInfoKey.BolusAmount.rawValue: units,
-            UserInfoKey.BolusStartDate.rawValue: startDate
+            UserInfoKey.bolusAmount.rawValue: units,
+            UserInfoKey.bolusStartDate.rawValue: startDate
         ]
 
         let request = UNNotificationRequest(
             // Only support 1 bolus notification at once
-            identifier: Category.BolusFailure.rawValue,
+            identifier: Category.bolusFailure.rawValue,
             content: notification,
             trigger: nil
         )
@@ -110,11 +134,11 @@ struct NotificationManager {
 
             notification.title = NSLocalizedString("Loop Failure", comment: "The notification title for a loop failure")
             notification.sound = UNNotificationSound.default()
-            notification.categoryIdentifier = Category.LoopNotRunning.rawValue
-            notification.threadIdentifier = Category.LoopNotRunning.rawValue
+            notification.categoryIdentifier = Category.loopNotRunning.rawValue
+            notification.threadIdentifier = Category.loopNotRunning.rawValue
 
             let request = UNNotificationRequest(
-                identifier: "\(Category.LoopNotRunning.rawValue)\(failureInterval)",
+                identifier: "\(Category.loopNotRunning.rawValue)\(failureInterval)",
                 content: notification,
                 trigger: UNTimeIntervalNotificationTrigger(
                     timeInterval: failureInterval + gracePeriod,
@@ -123,6 +147,19 @@ struct NotificationManager {
             )
 
             UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    static func clearLoopNotRunningNotifications() {
+        // Clear out any existing not-running notifications
+        UNUserNotificationCenter.current().getDeliveredNotifications { (notifications) in
+            let loopNotRunningIdentifiers = notifications.filter({
+                $0.request.content.categoryIdentifier == Category.loopNotRunning.rawValue
+            }).map({
+                $0.request.identifier
+            })
+
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: loopNotRunningIdentifiers)
         }
     }
 
@@ -137,16 +174,20 @@ struct NotificationManager {
         notification.title = NSLocalizedString("Pump Battery Low", comment: "The notification title for a low pump battery")
         notification.body = NSLocalizedString("Change the pump battery immediately", comment: "The notification alert describing a low pump battery")
         notification.sound = UNNotificationSound.default()
-        notification.categoryIdentifier = Category.PumpBatteryLow.rawValue
+        notification.categoryIdentifier = Category.pumpBatteryLow.rawValue
 
         let request = UNNotificationRequest(
-            identifier: Category.PumpBatteryLow.rawValue,
+            identifier: Category.pumpBatteryLow.rawValue,
             content: notification,
             trigger: nil
         )
 
         UNUserNotificationCenter.current().add(request)
         lastBatteryLowNotification = Date()      // Is this current time and date?
+    }
+
+    static func clearPumpBatteryLowNotification() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Category.pumpBatteryLow.rawValue])
     }
 
     static func sendPumpReservoirEmptyNotification() {
@@ -160,11 +201,11 @@ struct NotificationManager {
         notification.title = NSLocalizedString("Pump Reservoir Empty", comment: "The notification title for an empty pump reservoir")
         notification.body = NSLocalizedString("Change the pump reservoir now", comment: "The notification alert describing an empty pump reservoir")
         notification.sound = UNNotificationSound.default()
-        notification.categoryIdentifier = Category.PumpReservoirEmpty.rawValue
+        notification.categoryIdentifier = Category.pumpReservoirEmpty.rawValue
 
         let request = UNNotificationRequest(
             // Not a typo: this should replace any pump reservoir low notifications
-            identifier: Category.PumpReservoirLow.rawValue,
+            identifier: Category.pumpReservoirLow.rawValue,
             content: notification,
             trigger: nil
         )
@@ -194,14 +235,18 @@ struct NotificationManager {
         }
 
         notification.sound = UNNotificationSound.default()
-        notification.categoryIdentifier = Category.PumpReservoirLow.rawValue
+        notification.categoryIdentifier = Category.pumpReservoirLow.rawValue
 
         let request = UNNotificationRequest(
-            identifier: Category.PumpReservoirLow.rawValue,
+            identifier: Category.pumpReservoirLow.rawValue,
             content: notification,
             trigger: nil
         )
 
         UNUserNotificationCenter.current().add(request)
+    }
+
+    static func clearPumpReservoirNotification() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Category.pumpReservoirLow.rawValue])
     }
 }
