@@ -8,9 +8,6 @@
 
 import HealthKit
 
-import CarbKit
-import GlucoseKit
-import InsulinKit
 import LoopKit
 import SwiftCharts
 import LoopUI
@@ -28,7 +25,7 @@ extension StatusChartsManager {
     // MARK: - Glucose
 
     private func glucosePointsFromValues(_ glucoseValues: [GlucoseValue]) -> [ChartPoint] {
-        let unitString = glucoseUnit.glucoseUnitDisplayString
+        let unitString = glucoseUnit.localizedShortUnitString
         let formatter = dateFormatter
         let glucoseFormatter = NumberFormatter.glucoseFormatter(for: glucoseUnit)
 
@@ -84,17 +81,26 @@ extension StatusChartsManager {
         var allDosePoints = [ChartPoint]()
 
         for entry in doseEntries {
-            switch entry.endDate.timeIntervalSince(entry.startDate) {
-            case let time where time > 0:
+            let time = entry.endDate.timeIntervalSince(entry.startDate)
+
+            if entry.type == .bolus && entry.netBasalUnits > 0 && time < .minutes(5) {
+                let x = ChartAxisValueDate(date: entry.startDate, formatter: dateFormatter)
+                let y = ChartAxisValueDoubleLog(actualDouble: entry.units, unitString: "U", formatter: doseFormatter)
+
+                let point = ChartPoint(x: x, y: y)
+                bolusDosePoints.append(point)
+                allDosePoints.append(point)
+            } else if time > 0 {
                 // TODO: Display the DateInterval
                 let startX = ChartAxisValueDate(date: entry.startDate, formatter: dateFormatter)
                 let endX = ChartAxisValueDate(date: entry.endDate, formatter: dateFormatter)
                 let zero = ChartAxisValueInt(0)
-                let value = ChartAxisValueDoubleLog(actualDouble: entry.unitsPerHour, unitString: "U/hour", formatter: doseFormatter)
+                let rate = entry.netBasalUnitsPerHour
+                let value = ChartAxisValueDoubleLog(actualDouble: rate, unitString: "U/hour", formatter: doseFormatter)
 
                 let valuePoints: [ChartPoint]
 
-                if entry.unitsPerHour != 0 {
+                if abs(rate) > .ulpOfOne {
                     valuePoints = [
                         ChartPoint(x: startX, y: value),
                         ChartPoint(x: endX, y: value)
@@ -110,15 +116,6 @@ extension StatusChartsManager {
                 ]
 
                 allDosePoints += valuePoints
-            default:
-                if entry.type == .bolus && entry.units > 0 {
-                    let x = ChartAxisValueDate(date: entry.startDate, formatter: dateFormatter)
-                    let y = ChartAxisValueDoubleLog(actualDouble: entry.units, unitString: "U", formatter: doseFormatter)
-
-                    let point = ChartPoint(x: x, y: y)
-                    bolusDosePoints.append(point)
-                    allDosePoints.append(point)
-                }
             }
         }
 
@@ -192,7 +189,7 @@ extension StatusChartsManager {
         let dateFormatter = self.dateFormatter
         let decimalFormatter = self.doseFormatter
         let unit = glucoseUnit.unitDivided(by: .minute())
-        let unitString = String(format: NSLocalizedString("%1$@/min", comment: "Format string describing glucose units per minute (1: glucose unit string)"), glucoseUnit.glucoseUnitDisplayString)
+        let unitString = String(format: NSLocalizedString("%1$@/min", comment: "Format string describing glucose units per minute (1: glucose unit string)"), glucoseUnit.localizedShortUnitString)
 
         var insulinCounteractionEffectPoints: [ChartPoint] = []
         var allCarbEffectPoints: [ChartPoint] = []

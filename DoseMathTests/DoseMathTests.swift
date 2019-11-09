@@ -8,7 +8,6 @@
 
 import XCTest
 import HealthKit
-import InsulinKit
 import LoopKit
 
 
@@ -62,7 +61,7 @@ class RecommendTempBasalTests: XCTestCase {
         return fixture.map {
             return GlucoseFixtureValue(
                 startDate: dateFormatter.date(from: $0["date"] as! String)!,
-                quantity: HKQuantity(unit: HKUnit.milligramsPerDeciliter(), doubleValue: $0["amount"] as! Double)
+                quantity: HKQuantity(unit: HKUnit.milligramsPerDeciliter, doubleValue: $0["amount"] as! Double)
             )
         }
     }
@@ -82,15 +81,15 @@ class RecommendTempBasalTests: XCTestCase {
     }
 
     var glucoseTargetRange: GlucoseRangeSchedule {
-        return GlucoseRangeSchedule(unit: HKUnit.milligramsPerDeciliter(), dailyItems: [RepeatingScheduleValue(startTime: TimeInterval(0), value: DoubleRange(minValue: 90, maxValue: 120))], overrideRanges: [:])!
+        return GlucoseRangeSchedule(unit: HKUnit.milligramsPerDeciliter, dailyItems: [RepeatingScheduleValue(startTime: TimeInterval(0), value: DoubleRange(minValue: 90, maxValue: 120))], overrideRanges: [:])!
     }
 
     var insulinSensitivitySchedule: InsulinSensitivitySchedule {
-        return InsulinSensitivitySchedule(unit: HKUnit.milligramsPerDeciliter(), dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 60.0)])!
+        return InsulinSensitivitySchedule(unit: HKUnit.milligramsPerDeciliter, dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 60.0)])!
     }
     
     var suspendThreshold: GlucoseThreshold {
-        return GlucoseThreshold(unit: HKUnit.milligramsPerDeciliter(), value: 55)
+        return GlucoseThreshold(unit: HKUnit.milligramsPerDeciliter, value: 55)
     }
 
     var insulinModel: InsulinModel {
@@ -326,7 +325,7 @@ class RecommendTempBasalTests: XCTestCase {
             lastTempBasal: nil
         )
 
-        XCTAssertEqualWithAccuracy(1.425, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(1.425, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
         XCTAssertEqual(TimeInterval(minutes: 30), dose!.duration)
     }
 
@@ -344,7 +343,7 @@ class RecommendTempBasalTests: XCTestCase {
             lastTempBasal: nil
         )
 
-        XCTAssertEqualWithAccuracy(1.475, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(1.475, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
         XCTAssertEqual(TimeInterval(minutes: 30), dose!.duration)
     }
 
@@ -366,7 +365,7 @@ class RecommendTempBasalTests: XCTestCase {
         XCTAssertEqual(TimeInterval(minutes: 30), dose!.duration)
 
         // Use mmol sensitivity value
-        let insulinSensitivitySchedule = InsulinSensitivitySchedule(unit: HKUnit.millimolesPerLiter(), dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 3.33)])!
+        let insulinSensitivitySchedule = InsulinSensitivitySchedule(unit: HKUnit.millimolesPerLiter, dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 3.33)])!
 
         dose = glucose.recommendedTempBasal(
             to: glucoseTargetRange,
@@ -379,7 +378,7 @@ class RecommendTempBasalTests: XCTestCase {
             lastTempBasal: nil
         )
 
-        XCTAssertEqualWithAccuracy(2.975, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(2.975, dose!.unitsPerHour, accuracy: 1.0 / 40.0)
         XCTAssertEqual(TimeInterval(minutes: 30), dose!.duration)
     }
 
@@ -448,7 +447,7 @@ class RecommendBolusTests: XCTestCase {
         return fixture.map {
             return GlucoseFixtureValue(
                 startDate: dateFormatter.date(from: $0["date"] as! String)!,
-                quantity: HKQuantity(unit: HKUnit.milligramsPerDeciliter(), doubleValue: $0["amount"] as! Double)
+                quantity: HKQuantity(unit: HKUnit.milligramsPerDeciliter, doubleValue: $0["amount"] as! Double)
             )
         }
     }
@@ -468,15 +467,15 @@ class RecommendBolusTests: XCTestCase {
     }
 
     var glucoseTargetRange: GlucoseRangeSchedule {
-        return GlucoseRangeSchedule(unit: HKUnit.milligramsPerDeciliter(), dailyItems: [RepeatingScheduleValue(startTime: TimeInterval(0), value: DoubleRange(minValue: 90, maxValue: 120))], overrideRanges: [:])!
+        return GlucoseRangeSchedule(unit: HKUnit.milligramsPerDeciliter, dailyItems: [RepeatingScheduleValue(startTime: TimeInterval(0), value: DoubleRange(minValue: 90, maxValue: 120))], overrideRanges: [:])!
     }
 
     var insulinSensitivitySchedule: InsulinSensitivitySchedule {
-        return InsulinSensitivitySchedule(unit: HKUnit.milligramsPerDeciliter(), dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 60.0)])!
+        return InsulinSensitivitySchedule(unit: HKUnit.milligramsPerDeciliter, dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 60.0)])!
     }
     
     var suspendThreshold: GlucoseThreshold {
-        return GlucoseThreshold(unit: HKUnit.milligramsPerDeciliter(), value: 55)
+        return GlucoseThreshold(unit: HKUnit.milligramsPerDeciliter, value: 55)
     }
 
     var insulinModel: InsulinModel {
@@ -567,7 +566,53 @@ class RecommendBolusTests: XCTestCase {
         XCTAssertEqual(1.575, dose.amount)
 
         if case BolusRecommendationNotice.currentGlucoseBelowTarget(let glucose) = dose.notice! {
-            XCTAssertEqual(glucose.quantity.doubleValue(for: .milligramsPerDeciliter()), 60)
+            XCTAssertEqual(glucose.quantity.doubleValue(for: .milligramsPerDeciliter), 60)
+        } else {
+            XCTFail("Expected currentGlucoseBelowTarget, but got \(dose.notice!)")
+        }
+    }
+
+    func testStartBelowSuspendThresholdEndHigh() {
+        // 60 - 200 mg/dL
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_start_low_end_high")
+
+        let dose = glucose.recommendedBolus(
+            to: glucoseTargetRange,
+            at: glucose.first!.startDate,
+            suspendThreshold: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: 70),
+            sensitivity: insulinSensitivitySchedule,
+            model: insulinModel,
+            pendingInsulin: 0,
+            maxBolus: maxBolus
+        )
+
+        XCTAssertEqual(0, dose.amount)
+
+        if case BolusRecommendationNotice.glucoseBelowSuspendThreshold(let glucose) = dose.notice! {
+            XCTAssertEqual(glucose.quantity.doubleValue(for: .milligramsPerDeciliter), 60)
+        } else {
+            XCTFail("Expected currentGlucoseBelowTarget, but got \(dose.notice!)")
+        }
+    }
+
+    func testStartLowNoSuspendThresholdEndHigh() {
+        // 60 - 200 mg/dL
+        let glucose = loadGlucoseValueFixture("recommend_temp_basal_start_low_end_high")
+
+        let dose = glucose.recommendedBolus(
+            to: glucoseTargetRange,
+            at: glucose.first!.startDate,
+            suspendThreshold: nil,  // Expected to default to 90
+            sensitivity: insulinSensitivitySchedule,
+            model: insulinModel,
+            pendingInsulin: 0,
+            maxBolus: maxBolus
+        )
+
+        XCTAssertEqual(0, dose.amount)
+
+        if case BolusRecommendationNotice.glucoseBelowSuspendThreshold(let glucose) = dose.notice! {
+            XCTAssertEqual(glucose.quantity.doubleValue(for: .milligramsPerDeciliter), 60)
         } else {
             XCTFail("Expected currentGlucoseBelowTarget, but got \(dose.notice!)")
         }
@@ -636,7 +681,7 @@ class RecommendBolusTests: XCTestCase {
             maxBolus: maxBolus
         )
 
-        XCTAssertEqualWithAccuracy(1.575, dose.amount, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(1.575, dose.amount, accuracy: 1.0 / 40.0)
     }
 
     func testHighAndFalling() {
@@ -652,7 +697,7 @@ class RecommendBolusTests: XCTestCase {
             maxBolus: maxBolus
         )
 
-        XCTAssertEqualWithAccuracy(0.325, dose.amount, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(0.325, dose.amount, accuracy: 1.0 / 40.0)
     }
 
     func testInRangeAndRising() {
@@ -668,7 +713,7 @@ class RecommendBolusTests: XCTestCase {
             maxBolus: maxBolus
         )
 
-        XCTAssertEqualWithAccuracy(0.325, dose.amount, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(0.325, dose.amount, accuracy: 1.0 / 40.0)
 
         // Less existing temp
 
@@ -682,7 +727,7 @@ class RecommendBolusTests: XCTestCase {
             maxBolus: maxBolus
         )
 
-        XCTAssertEqualWithAccuracy(0, dose.amount, accuracy: 1e-13)
+        XCTAssertEqual(0, dose.amount, accuracy: .ulpOfOne)
     }
 
     func testStartLowEndJustAboveRange() {
@@ -691,7 +736,7 @@ class RecommendBolusTests: XCTestCase {
         let dose = glucose.recommendedBolus(
             to: glucoseTargetRange,
             at: glucose.first!.startDate,
-            suspendThreshold: HKQuantity(unit: .milligramsPerDeciliter(), doubleValue: 0),
+            suspendThreshold: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: 0),
             sensitivity: insulinSensitivitySchedule,
             model: ExponentialInsulinModel(actionDuration: 21600.0, peakActivityTime: 4500.0),
             pendingInsulin: 0,
@@ -717,7 +762,7 @@ class RecommendBolusTests: XCTestCase {
         XCTAssertEqual(1.25, dose.amount)
 
         // Use mmol sensitivity value
-        let insulinSensitivitySchedule = InsulinSensitivitySchedule(unit: HKUnit.millimolesPerLiter(), dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 10.0 / 3)])!
+        let insulinSensitivitySchedule = InsulinSensitivitySchedule(unit: HKUnit.millimolesPerLiter, dailyItems: [RepeatingScheduleValue(startTime: 0.0, value: 10.0 / 3)])!
 
         dose = glucose.recommendedBolus(
             to: glucoseTargetRange,
@@ -729,7 +774,7 @@ class RecommendBolusTests: XCTestCase {
             maxBolus: maxBolus
         )
 
-        XCTAssertEqualWithAccuracy(1.25, dose.amount, accuracy: 1.0 / 40.0)
+        XCTAssertEqual(1.25, dose.amount, accuracy: 1.0 / 40.0)
     }
 
     func testRiseAfterDIA() {

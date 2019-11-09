@@ -8,9 +8,8 @@
 import UIKit
 import HealthKit
 
-import CarbKit
 import LoopKit
-import LoopUI
+import LoopKitUI
 
 
 private extension RefreshContext {
@@ -24,29 +23,29 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
         super.viewDidLoad()
 
         charts.glucoseDisplayRange = (
-            min: HKQuantity(unit: HKUnit.milligramsPerDeciliter(), doubleValue: 100),
-            max: HKQuantity(unit: HKUnit.milligramsPerDeciliter(), doubleValue: 175)
+            min: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: 100),
+            max: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: 175)
         )
 
         let notificationCenter = NotificationCenter.default
 
         notificationObservers += [
-            notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [unowned self] note in
+            notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                 let context = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                 DispatchQueue.main.async {
                     switch LoopDataManager.LoopUpdateContext(rawValue: context) {
                     case .preferences?:
-                        self.refreshContext.update(with: .targets)
+                        self?.refreshContext.update(with: .targets)
                     case .carbs?:
-                        self.refreshContext.formUnion([.carbs, .glucose])
+                        self?.refreshContext.formUnion([.carbs, .glucose])
                     case .glucose?:
-                        self.refreshContext.update(with: .glucose)
+                        self?.refreshContext.update(with: .glucose)
                     default:
                         break
                     }
 
-                    self.refreshContext.update(with: .status)
-                    self.reloadData(animated: true)
+                    self?.refreshContext.update(with: .status)
+                    self?.reloadData(animated: true)
                 }
             }
         ]
@@ -80,20 +79,9 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
 
     private var refreshContext = RefreshContext.all
 
-    private var chartStartDate: Date {
-        get {
-            return charts.startDate
-        }
-        set {
-            if newValue != chartStartDate {
-                refreshContext = RefreshContext.all
-            }
+    private var reloading = false
 
-            charts.startDate = newValue
-        }
-    }
-
-    private var carbStatuses: [CarbStatus] = []
+    private var carbStatuses: [CarbStatus<StoredCarbEntry>] = []
 
     private var carbsOnBoard: CarbValue?
 
@@ -101,106 +89,103 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
 
     // MARK: - Data loading
 
-    override func reloadData(animated: Bool) {
-        guard active && !self.refreshContext.isEmpty else { return }
+    override func glucoseUnitDidChange() {
+        refreshContext = RefreshContext.all
+    }
+
+    override func reloadData(animated: Bool = false) {
+        guard active && !reloading && !self.refreshContext.isEmpty else { return }
+        var currentContext = self.refreshContext
+        var retryContext: Set<RefreshContext> = []
+        self.refreshContext = []
+        reloading = true
 
         // How far back should we show data? Use the screen size as a guide.
         let minimumSegmentWidth: CGFloat = 75
 
-        let size = self.refreshContext.removeNewSize() ?? self.tableView.bounds.size
+        let size = currentContext.newSize ?? self.tableView.bounds.size
         let availableWidth = size.width - self.charts.fixedHorizontalMargin
         let totalHours = floor(Double(availableWidth / minimumSegmentWidth))
 
         var components = DateComponents()
         components.minute = 0
         let date = Date(timeIntervalSinceNow: -TimeInterval(hours: max(1, totalHours)))
-        chartStartDate = Calendar.current.nextDate(after: date, matching: components, matchingPolicy: .strict, direction: .backward) ?? date
+        let chartStartDate = Calendar.current.nextDate(after: date, matching: components, matchingPolicy: .strict, direction: .backward) ?? date
+        if charts.startDate != chartStartDate {
+            currentContext.formUnion(RefreshContext.all)
+        }
+        charts.startDate = chartStartDate
 
         let midnight = Calendar.current.startOfDay(for: Date())
         let listStart = min(midnight, chartStartDate)
 
         let reloadGroup = DispatchGroup()
-        let shouldUpdateGlucose = self.refreshContext.remove(.glucose) != nil
-        let shouldUpdateCarbs = self.refreshContext.remove(.carbs) != nil
+        let shouldUpdateGlucose = currentContext.contains(.glucose)
+        let shouldUpdateCarbs = currentContext.contains(.carbs)
 
-        var refreshContext = self.refreshContext
         var carbEffects: [GlucoseEffect]?
-        var carbStatuses: [CarbStatus]?
+        var carbStatuses: [CarbStatus<StoredCarbEntry>]?
         var carbsOnBoard: CarbValue?
         var carbTotal: CarbValue?
 
+        // TODO: Don't always assume currentContext.contains(.status)
         reloadGroup.enter()
-        deviceManager.loopManager.glucoseStore.preferredUnit { (unit, error) in
-            if let unit = unit {
-                self.charts.glucoseUnit = unit
-            }
+        self.deviceManager.loopManager.getLoopState { (manager, state) in
+            if shouldUpdateGlucose || shouldUpdateCarbs {
+                let insulinCounteractionEffects = state.insulinCounteractionEffects
+                self.charts.setInsulinCounteractionEffects(state.insulinCounteractionEffects.filterDateRange(chartStartDate, nil))
 
-            _ = refreshContext.remove(.status)
-            reloadGroup.enter()
-            self.deviceManager.loopManager.getLoopState { (manager, state) in
-                if shouldUpdateGlucose || shouldUpdateCarbs {
-                    let insulinCounteractionEffects = state.insulinCounteractionEffects
-                    self.charts.setInsulinCounteractionEffects(state.insulinCounteractionEffects.filterDateRange(self.chartStartDate, nil))
-
-                    reloadGroup.enter()
-                    manager.carbStore.getCarbStatus(start: listStart, effectVelocities: manager.settings.dynamicCarbAbsorptionEnabled ? insulinCounteractionEffects : nil) { (result) in
-                        switch result {
-                        case .success(let status):
-                            carbStatuses = status
-                            carbsOnBoard = status.clampedCarbsOnBoard
-                        case .failure(let error):
-                            self.deviceManager.logger.addError(error, fromSource: "CarbStore")
-                            refreshContext.update(with: .carbs)
-                        }
-
-                        reloadGroup.leave()
-                    }
-
-                    reloadGroup.enter()
-                    manager.carbStore.getGlucoseEffects(start: self.chartStartDate, effectVelocities: manager.settings.dynamicCarbAbsorptionEnabled ? insulinCounteractionEffects : nil) { (result) in
-                        switch result {
-                        case .success(let effects):
-                            carbEffects = effects
-                        case .failure(let error):
-                            carbEffects = []
-                            self.deviceManager.logger.addError(error, fromSource: "CarbStore")
-                            refreshContext.update(with: .carbs)
-                        }
-                        reloadGroup.leave()
-                    }
-                }
-
-                if refreshContext.remove(.targets) != nil {
-                    if let schedule = manager.settings.glucoseTargetRangeSchedule {
-                        self.charts.targetPointsCalculator = GlucoseRangeScheduleCalculator(schedule)
-                    } else {
-                        self.charts.targetPointsCalculator = nil
-                    }
-                }
-
-                reloadGroup.leave()
-            }
-
-            if shouldUpdateCarbs {
                 reloadGroup.enter()
-                self.deviceManager.loopManager.carbStore.getTotalCarbs(since: midnight) { (result) in
+                manager.carbStore.getCarbStatus(start: listStart, effectVelocities: manager.settings.dynamicCarbAbsorptionEnabled ? insulinCounteractionEffects : nil) { (result) in
                     switch result {
-                    case .success(let total):
-                        carbTotal = total
+                    case .success(let status):
+                        carbStatuses = status
+                        carbsOnBoard = status.getClampedCarbsOnBoard()
                     case .failure(let error):
                         self.deviceManager.logger.addError(error, fromSource: "CarbStore")
-                        refreshContext.update(with: .carbs)
+                        retryContext.update(with: .carbs)
                     }
-                    
+
                     reloadGroup.leave()
                 }
+
+                reloadGroup.enter()
+                manager.carbStore.getGlucoseEffects(start:  chartStartDate, effectVelocities: manager.settings.dynamicCarbAbsorptionEnabled ? insulinCounteractionEffects : nil) { (result) in
+                    switch result {
+                    case .success(let effects):
+                        carbEffects = effects
+                    case .failure(let error):
+                        carbEffects = []
+                        self.deviceManager.logger.addError(error, fromSource: "CarbStore")
+                        retryContext.update(with: .carbs)
+                    }
+                    reloadGroup.leave()
+                }
+            }
+
+            if currentContext.contains(.targets) {
+                self.charts.targetGlucoseSchedule = manager.settings.glucoseTargetRangeSchedule
             }
 
             reloadGroup.leave()
         }
 
+        if shouldUpdateCarbs {
+            reloadGroup.enter()
+            self.deviceManager.loopManager.carbStore.getTotalCarbs(since: midnight) { (result) in
+                switch result {
+                case .success(let total):
+                    carbTotal = total
+                case .failure(let error):
+                    self.deviceManager.logger.addError(error, fromSource: "CarbStore")
+                    retryContext.update(with: .carbs)
+                }
+
+                reloadGroup.leave()
+            }
+        }
+
         reloadGroup.notify(queue: .main) {
-            self.refreshContext = refreshContext
             if let carbEffects = carbEffects {
                 self.charts.setCarbEffects(carbEffects)
             }
@@ -226,6 +211,15 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
 
             if let cell = self.tableView.cellForRow(at: IndexPath(row: 0, section: Section.totals.rawValue)) as? HeaderValuesTableViewCell {
                 self.updateCell(cell)
+            }
+
+            self.reloading = false
+            let reloadNow = !self.refreshContext.isEmpty
+            self.refreshContext.formUnion(retryContext)
+
+            // Trigger a reload if new context exists.
+            if reloadNow {
+                self.reloadData()
             }
         }
     }
@@ -290,8 +284,8 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
 
             switch ChartRow(rawValue: indexPath.row)! {
             case .carbEffect:
-                cell.chartContentView.chartGenerator = { [unowned self] (frame) in
-                    return self.charts.carbEffectChartWithFrame(frame)?.view
+                cell.chartContentView.chartGenerator = { [weak self] (frame) in
+                    return self?.charts.carbEffectChartWithFrame(frame)?.view
                 }
             }
 
@@ -389,7 +383,7 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
                 format: NSLocalizedString("at %@", comment: "Format fragment for a specific time"),
                 timeFormatter.string(from: carbsOnBoard.startDate)
             )
-            cell.COBValueLabel.text = carbFormatter.string(from: NSNumber(value: carbsOnBoard.quantity.doubleValue(for: unit)))
+            cell.COBValueLabel.text = carbFormatter.string(from: carbsOnBoard.quantity.doubleValue(for: unit))
 
             // Warn the user if the carbsOnBoard value isn't recent
             let textColor: UIColor
@@ -405,7 +399,7 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
             cell.COBDateLabel.textColor = textColor
         } else {
             cell.COBDateLabel.text = nil
-            cell.COBValueLabel.text = carbFormatter.string(from: NSNumber(value: 0))
+            cell.COBValueLabel.text = carbFormatter.string(from: 0.0)
         }
 
         if let carbTotal = carbTotal {
@@ -413,10 +407,10 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
                 format: NSLocalizedString("since %@", comment: "Format fragment for a start time"),
                 timeFormatter.string(from: carbTotal.startDate)
             )
-            cell.totalValueLabel.text = carbFormatter.string(from: NSNumber(value: carbTotal.quantity.doubleValue(for: unit)))
+            cell.totalValueLabel.text = carbFormatter.string(from: carbTotal.quantity.doubleValue(for: unit))
         } else {
             cell.totalDateLabel.text = nil
-            cell.totalValueLabel.text = carbFormatter.string(from: NSNumber(value: 0))
+            cell.totalValueLabel.text = carbFormatter.string(from: 0.0)
         }
     }
 
@@ -431,15 +425,14 @@ final class CarbAbsorptionViewController: ChartsTableViewController, Identifiabl
 
     public override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCellEditingStyle, forRowAt indexPath: IndexPath) {
         if editingStyle == .delete {
-            let status = carbStatuses.remove(at: indexPath.row)
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-
-            deviceManager.loopManager.carbStore.deleteCarbEntry(status.entry) { (success, error) -> Void in
+            let status = carbStatuses[indexPath.row]
+            deviceManager.loopManager.carbStore.deleteCarbEntry(status.entry) { (result) -> Void in
                 DispatchQueue.main.async {
-                    if success {
-                        // TODO: CarbStore doesn't automatically post this for deletes
-                        NotificationCenter.default.post(name: .CarbEntriesDidUpdate, object: self)
-                    } else if let error = error {
+                    switch result {
+                    case .success:
+                        self.isEditing = false
+                        break  // Notification will trigger update
+                    case .failure(let error):
                         self.refreshContext.update(with: .carbs)
                         self.presentAlertController(with: error)
                     }
